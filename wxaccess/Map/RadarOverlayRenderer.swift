@@ -1,0 +1,21 @@
+import MapKit
+import CoreGraphics
+
+final class RadarOverlayRenderer: MKOverlayRenderer {
+    private let radarOverlay: RadarOverlay
+
+    init(overlay: RadarOverlay) {
+        self.radarOverlay = overlay
+        super.init(overlay: overlay)
+        self.alpha = 0.75
+    }
+
+    override func draw(_ mapRect: MKMapRect, zoomScale: MKZoomScale, in ctx: CGContext) {
+        let drawRect = rect(for: radarOverlay.boundingMapRect)
+        ctx.draw(radarOverlay.image, in: drawRect)
+    }
+
+    override func canDraw(_ mapRect: MKMapRect, zoomScale: MKZoomScale) -> Bool {
+        radarOverlay.boundingMapRect.intersects(mapRect)
+    }
+}

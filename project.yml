@@ -1,0 +1,55 @@
+name: wxaccess
+options:
+  bundleIdPrefix: net.ai5os
+  deploymentTarget:
+    macOS: "14.0"
+  xcodeVersion: "16.0"
+  swift: "6.0"
+  createIntermediateGroups: true
+
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    MACOSX_DEPLOYMENT_TARGET: "14.0"
+    CODE_SIGN_STYLE: Automatic
+    DEVELOPMENT_TEAM: ""
+
+targets:
+  wxaccess:
+    type: application
+    platform: macOS
+    sources:
+      - path: wxaccess
+        excludes:
+          - "**/*.h"
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: net.ai5os.wxaccess
+        PRODUCT_NAME: wxaccess
+        INFOPLIST_FILE: wxaccess/Info.plist
+        CODE_SIGN_ENTITLEMENTS: wxaccess/wxaccess.entitlements
+        ENABLE_APP_SANDBOX: NO
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        OTHER_LDFLAGS: "-lbz2"
+        GCC_PREPROCESSOR_DEFINITIONS: "$(inherited)"
+        SWIFT_OBJC_BRIDGING_HEADER: "wxaccess/BridgingHeader.h"
+    dependencies:
+      - sdk: MapKit.framework
+      - sdk: CoreLocation.framework
+      - sdk: Metal.framework
+      - sdk: MetalKit.framework
+      - sdk: Accelerate.framework
+
+  wxaccessTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - wxaccessTests
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: net.ai5os.wxaccessTests
+        INFOPLIST_FILE: wxaccessTests/Info.plist
+        OTHER_LDFLAGS: "-lbz2"
+        SWIFT_OBJC_BRIDGING_HEADER: "wxaccess/BridgingHeader.h"
+    dependencies:
+      - target: wxaccess
