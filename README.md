@@ -2,6 +2,8 @@
 
 VoiceOver-first NEXRAD weather radar viewer for macOS. A native Swift + MapKit alternative to GRLevel3 / RadarScope built around the principle that weather data should be fully accessible without touching the map canvas.
 
+**[User Guide](USER_GUIDE.md)** — installation, feature walkthroughs, real-world examples, and accessibility reference for first-time users.
+
 ## Features
 
 ### Radar
