@@ -39,7 +39,7 @@ struct Radial: Sendable {
 }
 
 struct ScanEntry: Sendable, Identifiable, Hashable {
-    let id: String        // S3 key
+    let id: String        // THREDDS urlPath (used to construct download URL)
     let site: NEXRADSite
     let scanTime: Date
     let fileName: String

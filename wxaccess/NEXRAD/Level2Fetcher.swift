@@ -1,15 +1,19 @@
 import Foundation
 import OSLog
 
-// Fetches NEXRAD Level 2 scan files from NOAA's public AWS S3 bucket.
-// Bucket:  noaa-nexrad-level2  (requester-pays=false, anonymous access OK)
-// URL pattern:
-//   https://noaa-nexrad-level2.s3.amazonaws.com/{YYYY}/{MM}/{DD}/{ICAO}/{ICAO}{YYYYMMDD}_{HHMMSS}_V06
+// Fetches NEXRAD Level 2 scan files from Unidata's THREDDS Data Server.
+// The former NOAA S3 bucket (noaa-nexrad-level2) now returns 403 for anonymous
+// access; Unidata THREDDS provides the same Archive II format with 7-day rolling
+// retention and free HTTP access.
+//
+// Catalog URL:  https://thredds.ucar.edu/thredds/catalog/nexrad/level2/{SITE}/{YYYYMMDD}/catalog.xml
+// Download URL: https://thredds.ucar.edu/thredds/fileServer/{urlPath}
+// File format:  Archive II (.ar2v) — identical to the former _V06 format
 
 final class Level2Fetcher: @unchecked Sendable {
     static let shared = Level2Fetcher()
 
-    private let base = "https://noaa-nexrad-level2.s3.amazonaws.com"
+    private let threddsBase = "https://thredds.ucar.edu/thredds"
     private let logger = Logger(subsystem: "net.ai5os.wxaccess", category: "Level2Fetcher")
     private let session: URLSession = {
         let cfg = URLSessionConfiguration.default
@@ -20,26 +24,27 @@ final class Level2Fetcher: @unchecked Sendable {
 
     // MARK: - List scans
 
-    /// Returns the most recent scans for a site on today's date (up to 20).
     func listScans(site: NEXRADSite, date: Date = .now) async throws -> [ScanEntry] {
-        let cal  = Calendar(identifier: .gregorian)
-        let comps = cal.dateComponents(in: .gmt, from: date)
-        let yyyy = String(format: "%04d", comps.year!)
-        let mm   = String(format: "%02d", comps.month!)
-        let dd   = String(format: "%02d", comps.day!)
-        let prefix = "\(yyyy)/\(mm)/\(dd)/\(site.icao)/"
+        let cal      = Calendar(identifier: .gregorian)
+        let comps    = cal.dateComponents(in: .gmt, from: date)
+        let yyyymmdd = String(format: "%04d%02d%02d", comps.year!, comps.month!, comps.day!)
 
-        guard let listURL = URL(string: "\(base)?prefix=\(prefix)&list-type=2") else {
+        guard let catalogURL = URL(string:
+            "\(threddsBase)/catalog/nexrad/level2/\(site.icao)/\(yyyymmdd)/catalog.xml") else {
             throw URLError(.badURL)
         }
-        let (xmlData, _) = try await session.data(from: listURL)
-        return try parseS3Listing(xmlData: xmlData, site: site)
+        let (xmlData, response) = try await session.data(from: catalogURL)
+        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+            throw URLError(.badServerResponse)
+        }
+        return try parseThreddsCatalog(xmlData: xmlData, site: site)
     }
 
     // MARK: - Download
 
     func download(entry: ScanEntry) async throws -> Data {
-        guard let url = URL(string: "\(base)/\(entry.id)") else {
+        // entry.id is the THREDDS urlPath returned by the catalog
+        guard let url = URL(string: "\(threddsBase)/fileServer/\(entry.id)") else {
             throw URLError(.badURL)
         }
         do {
@@ -54,60 +59,47 @@ final class Level2Fetcher: @unchecked Sendable {
         }
     }
 
-    // MARK: - S3 XML listing parser
+    // MARK: - THREDDS InvCatalog XML parser
 
-    private func parseS3Listing(xmlData: Data, site: NEXRADSite) throws -> [ScanEntry] {
-        let parser = S3ListingParser(site: site)
+    private func parseThreddsCatalog(xmlData: Data, site: NEXRADSite) throws -> [ScanEntry] {
+        let parser    = ThreddsCatalogParser(site: site)
         let xmlParser = XMLParser(data: xmlData)
         xmlParser.delegate = parser
         xmlParser.parse()
-        return parser.entries.sorted { $0.scanTime > $1.scanTime }  // newest first
+        return parser.entries.sorted { $0.scanTime > $1.scanTime }
     }
 }
 
-// MARK: - XMLParserDelegate for S3 ListObjectsV2 response
+// MARK: - XMLParserDelegate for THREDDS InvCatalog
 
-private final class S3ListingParser: NSObject, XMLParserDelegate, @unchecked Sendable {
+private final class ThreddsCatalogParser: NSObject, XMLParserDelegate, @unchecked Sendable {
     let site: NEXRADSite
     var entries: [ScanEntry] = []
-    private var currentKey = ""
-    private var inKey = false
 
     init(site: NEXRADSite) { self.site = site }
 
     func parser(_ parser: XMLParser, didStartElement elementName: String,
-                namespaceURI: String?, qualifiedName: String?, attributes: [String: String] = [:]) {
-        if elementName == "Key" { inKey = true; currentKey = "" }
+                namespaceURI: String?, qualifiedName: String?,
+                attributes: [String: String] = [:]) {
+        guard elementName == "dataset",
+              let name    = attributes["name"],
+              let urlPath = attributes["urlPath"],
+              name.hasSuffix(".ar2v"),
+              !urlPath.isEmpty,
+              let date = dateFromFilename(name) else { return }
+        entries.append(ScanEntry(id: urlPath, site: site, scanTime: date, fileName: name))
     }
 
-    func parser(_ parser: XMLParser, foundCharacters string: String) {
-        if inKey { currentKey += string }
-    }
-
-    func parser(_ parser: XMLParser, didEndElement elementName: String,
-                namespaceURI: String?, qualifiedName: String?) {
-        guard elementName == "Key" else { return }
-        inKey = false
-        // Key looks like: 2024/05/17/KEWX/KEWX20240517_120345_V06
-        // or with MDM suffix: …_V06.gz (skip compressed variants for now)
-        let key = currentKey
-        guard key.hasSuffix("_V06") || key.hasSuffix("_V08") else { return }
-        guard let date = dateFromKey(key) else { return }
-        let entry = ScanEntry(id: key, site: site, scanTime: date, fileName: String(key.split(separator: "/").last ?? ""))
-        entries.append(entry)
-    }
-
-    // Filename component: KEWX20240517_120345_V06
-    private func dateFromKey(_ key: String) -> Date? {
-        guard let filename = key.split(separator: "/").last.map(String.init) else { return nil }
-        // filename = ICAO + YYYYMMDD + _ + HHMMSS + _ + Vxx
-        let body = filename.dropFirst(4)  // drop ICAO
+    // Filename format: Level2_KEWX_20260523_2356.ar2v
+    private func dateFromFilename(_ name: String) -> Date? {
+        guard name.hasPrefix("Level2_"), name.hasSuffix(".ar2v") else { return nil }
+        let body  = String(name.dropFirst(7).dropLast(5))   // "KEWX_20260523_2356"
         let parts = body.split(separator: "_")
-        guard parts.count >= 2 else { return nil }
-        let dateStr = String(parts[0]) + String(parts[1])  // "YYYYMMDDHHMMSS"
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyyMMddHHmmss"
-        formatter.timeZone = TimeZone(identifier: "UTC")
-        return formatter.date(from: dateStr)
+        guard parts.count >= 3 else { return nil }
+        let dateStr = String(parts[1]) + String(parts[2])   // "202605232356"
+        let fmt = DateFormatter()
+        fmt.dateFormat = "yyyyMMddHHmm"
+        fmt.timeZone = TimeZone(identifier: "UTC")
+        return fmt.date(from: dateStr)
     }
 }
