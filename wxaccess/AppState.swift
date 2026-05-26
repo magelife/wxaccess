@@ -159,10 +159,30 @@ final class AppState: NSObject {
     func selectCurrentSweep() {
         let target  = tiltAngle(for: tiltIndex)
         let product = selectedProduct.rawValue
-        currentSweep =
-            allSweeps.first { $0.momentType == product && abs($0.elevationAngle - target) < 0.5 }
-            ?? allSweeps.first { $0.momentType == product }
-            ?? allSweeps.first
+        currentSweep = Self.bestSweep(in: allSweeps, product: product, targetElevation: target)
+    }
+
+    nonisolated static func bestSweep(in sweeps: [RadarSweep], product: String, targetElevation: Double) -> RadarSweep? {
+        let productSweeps = sweeps.filter { $0.momentType == product }
+        return bestSweep(in: productSweeps, targetElevation: targetElevation)
+            ?? bestSweep(in: sweeps, targetElevation: targetElevation)
+    }
+
+    private nonisolated static func bestSweep(in sweeps: [RadarSweep], targetElevation: Double) -> RadarSweep? {
+        let nearby = sweeps.filter { abs($0.elevationAngle - targetElevation) <= 0.6 }
+        let candidates = nearby.isEmpty ? sweeps : nearby
+        return candidates.max { lhs, rhs in
+            let lhsCoverage = azimuthCoverageScore(lhs)
+            let rhsCoverage = azimuthCoverageScore(rhs)
+            if lhsCoverage != rhsCoverage {
+                return lhsCoverage < rhsCoverage
+            }
+            return abs(lhs.elevationAngle - targetElevation) > abs(rhs.elevationAngle - targetElevation)
+        }
+    }
+
+    private nonisolated static func azimuthCoverageScore(_ sweep: RadarSweep) -> Int {
+        Set(sweep.radials.map { Int(($0.azimuth * 2).rounded()) % 720 }).count
     }
 
     // MARK: - Level 3 products
@@ -271,9 +291,7 @@ final class AppState: NSObject {
                     group.addTask {
                         guard let data = try? await Level2Fetcher.shared.download(entry: scan) else { return (idx, nil) }
                         let sweeps = (try? Level2Decoder().decode(data: data)) ?? []
-                        let sweep  = sweeps.first { $0.momentType == product && abs($0.elevationAngle - target) < 0.5 }
-                            ?? sweeps.first { $0.momentType == product }
-                            ?? sweeps.first
+                        let sweep = AppState.bestSweep(in: sweeps, product: product, targetElevation: target)
                         return (idx, sweep)
                     }
                 }

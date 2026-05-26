@@ -41,7 +41,7 @@ final class Level3Overlay: NSObject, MKOverlay, @unchecked Sendable {
     private static func rasterize(sweep: Level3RadialSweep,
                                    size: Int, maxRangeKm: Double) -> CGImage {
         let width = size, height = size
-        var pixels = [UInt32](repeating: 0, count: width * height)
+        var pixels = [UInt8](repeating: 0, count: width * height * 4)
 
         // Build azimuth → Level3Radial lookup at 0.5° resolution.
         var radialMap: [Int: Level3Radial] = [:]
@@ -76,17 +76,23 @@ final class Level3Overlay: NSObject, MKOverlay, @unchecked Sendable {
                                                         product: sweep.productCode)
                 else { continue }
 
-                pixels[row * width + col] = productColor(value: value, product: sweep.productCode)
+                setPixel(&pixels, row: row, col: col, width: width,
+                         color: productColor(value: value, product: sweep.productCode))
             }
         }
 
         let colorSpace = CGColorSpaceCreateDeviceRGB()
         let bitmapInfo = CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue)
-        guard let ctx = CGContext(data: &pixels,
-                                   width: width, height: height,
-                                   bitsPerComponent: 8, bytesPerRow: width * 4,
-                                   space: colorSpace, bitmapInfo: bitmapInfo.rawValue),
-              let image = ctx.makeImage()
+            .union(.byteOrder32Big)
+        let image = pixels.withUnsafeMutableBytes { buffer -> CGImage? in
+            guard let ctx = CGContext(data: buffer.baseAddress,
+                                      width: width, height: height,
+                                      bitsPerComponent: 8, bytesPerRow: width * 4,
+                                      space: colorSpace, bitmapInfo: bitmapInfo.rawValue)
+            else { return nil }
+            return ctx.makeImage()
+        }
+        guard let image
         else {
             logger.error("CGContext creation failed for \(sweep.site.icao) \(sweep.productCode.mnemonic)")
             guard let provider = CGDataProvider(data: Data([0, 0, 0, 0]) as CFData),
@@ -98,6 +104,14 @@ final class Level3Overlay: NSObject, MKOverlay, @unchecked Sendable {
             return fallback
         }
         return image
+    }
+
+    private static func setPixel(_ pixels: inout [UInt8], row: Int, col: Int, width: Int, color: UInt32) {
+        let offset = (row * width + col) * 4
+        pixels[offset]     = UInt8((color >> 24) & 0xFF)
+        pixels[offset + 1] = UInt8((color >> 16) & 0xFF)
+        pixels[offset + 2] = UInt8((color >> 8) & 0xFF)
+        pixels[offset + 3] = UInt8(color & 0xFF)
     }
 
     // MARK: - Color tables

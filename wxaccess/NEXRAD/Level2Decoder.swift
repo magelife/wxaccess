@@ -140,11 +140,11 @@ final class Level2Decoder {
         var time: Date? = nil
         var offset = 0
 
-        // Each message is preceded by a 12-byte CTM (Communications and Terminal
-        // Manager) header, which is zero-filled in archive files.  The 16-byte
-        // message header follows; its first two bytes give the message size in
-        // halfwords INCLUDING the header.  Advance by ctmSize + sizeHW*2 per message.
+        // Each record is preceded by a 12-byte CTM (Communications and Terminal
+        // Manager) header. Message 31 records can be variable length and span
+        // record boundaries; other archive records occupy a full 2432-byte slot.
         while offset + Offsets.ctmSize + Offsets.msgHeaderSize <= data.count {
+            let recordStart = offset
             offset += Offsets.ctmSize  // skip CTM
 
             let base       = data.startIndex + offset
@@ -160,7 +160,8 @@ final class Level2Decoder {
             }
 
             guard totalBytes >= Offsets.msgHeaderSize else { break }
-            offset += totalBytes
+            let recordBytes = totalBytes + Offsets.ctmSize
+            offset = recordStart + (msgType == 31 ? recordBytes : max(recordBytes, Offsets.archiveRecordSize))
         }
 
         return (pairs, vcp, time)
@@ -277,6 +278,7 @@ final class Level2Decoder {
     private enum Offsets {
         static let volumeHeaderSize = 24
         static let ctmSize          = 12  // CTM header preceding each message (zero in archives)
+        static let archiveRecordSize = 2432
         static let msgHeaderSize    = 16
         static let msgHeaderType    = 3   // byte offset of message type within the 16-byte header
     }

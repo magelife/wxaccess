@@ -125,6 +125,12 @@ struct Level3DecoderTests {
         #expect(p.physicalValue(code: 255) == nil)        // beyond max range
     }
 
+    @Test("Negative bin index returns nil")
+    func negativeBinIndexReturnsNil() {
+        let radial = Level3Radial(startAngle: 0, deltaAngle: 1, data: [2, 50])
+        #expect(radial.physicalValue(binIndex: -1, product: .echoTops) == nil)
+    }
+
     @Test("Base Reflectivity L3: (code − 2) × 0.5 − 32.5 dBZ")
     func physicalValueBaseReflectivity() {
         let p = Level3ProductCode.baseReflectivity

@@ -31,7 +31,8 @@ enum ColorPalette: String, CaseIterable, Identifiable, Sendable {
     // Current NWS standard table
     private func nwsColor(dbz: Float) -> UInt32 {
         switch dbz {
-        case ..<5:    return 0
+        case ..<0:    return 0
+        case 0..<5:   return rgba(0x74, 0xD8, 0xE8, a: 120)
         case 5..<10:  return rgba(0x00, 0xEC, 0xEC)
         case 10..<15: return rgba(0x01, 0x9F, 0xF4)
         case 15..<20: return rgba(0x03, 0x00, 0xF4)
@@ -53,7 +54,8 @@ enum ColorPalette: String, CaseIterable, Identifiable, Sendable {
     // GRLevel3-style: more color steps, enhanced contrast in the 50–65 dBZ range
     private func grColor(dbz: Float) -> UInt32 {
         switch dbz {
-        case ..<5:    return 0
+        case ..<0:    return 0
+        case 0..<5:   return rgba(0x55, 0xC8, 0xD8, a: 120)
         case 5..<10:  return rgba(0x40, 0xE0, 0xD0)
         case 10..<15: return rgba(0x00, 0xBF, 0xFF)
         case 15..<20: return rgba(0x00, 0x00, 0xFF)
@@ -75,7 +77,8 @@ enum ColorPalette: String, CaseIterable, Identifiable, Sendable {
     // Colorblind-friendly: blue → amber/orange scale (avoids red-green ambiguity)
     private func cbColor(dbz: Float) -> UInt32 {
         switch dbz {
-        case ..<5:    return 0
+        case ..<0:    return 0
+        case 0..<5:   return rgba(0x9F, 0xB5, 0xC8, a: 120)
         case 5..<10:  return rgba(0xCA, 0xCC, 0xE4)
         case 10..<15: return rgba(0x74, 0x8E, 0xA4)
         case 15..<20: return rgba(0x22, 0x55, 0x8C)

@@ -88,7 +88,7 @@ struct Level3Radial: Sendable {
     let data: [UInt8]         // data level codes per range bin
 
     func physicalValue(binIndex: Int, product: Level3ProductCode) -> Float? {
-        guard binIndex < data.count else { return nil }
+        guard binIndex >= 0, binIndex < data.count else { return nil }
         return product.physicalValue(code: data[binIndex])
     }
 }

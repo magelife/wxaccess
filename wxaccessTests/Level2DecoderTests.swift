@@ -1,5 +1,6 @@
 import Testing
 import Foundation
+import CoreGraphics
 @testable import wxaccess
 
 // Integration tests require a real NEXRAD Level 2 file.
@@ -82,6 +83,7 @@ struct Level2DecoderTests {
             scale: 2.0, offset: 66.0,
             data: [0, 1, 100]   // 0=below threshold, 1=range folded, 100=valid
         )
+        #expect(radial.physicalValue(gateIndex: -1) == nil) // before first gate
         #expect(radial.physicalValue(gateIndex: 0) == nil)  // below threshold
         #expect(radial.physicalValue(gateIndex: 1) == nil)  // range folded
         let value = radial.physicalValue(gateIndex: 2)
@@ -253,6 +255,130 @@ struct Level2DecoderTests {
         #expect(!alert.accessibilityLabel.isEmpty)
         #expect(alert.accessibilityLabel.contains("Tornado Warning"))
     }
+
+    @Test("Radar overlay raster covers more than a narrow slice")
+    func radarOverlayRasterCoverage() throws {
+        guard let url = Bundle(for: Level2DecoderTestClass.self)
+                .url(forResource: "KEWX_sample", withExtension: "bin") else { return }
+        let data = try Data(contentsOf: url)
+        let sweeps = try Level2Decoder().decode(data: data)
+        let refAt05 = try #require(sweeps.filter { $0.momentType == "REF" }
+                                         .min(by: { abs($0.elevationAngle - 0.5) <
+                                                    abs($1.elevationAngle - 0.5) }))
+        let overlay = RadarOverlay(sweep: refAt05, imageSize: 256, palette: .nwsStandard)
+        let opaquePixels = nonTransparentPixelCount(in: overlay.image)
+        let imagePixels = overlay.image.width * overlay.image.height
+
+        // A valid KEWX sample with broad REF data should not rasterize as a
+        // needle-thin azimuth slice. This guards the visual map path only.
+        #expect(Double(opaquePixels) / Double(imagePixels) > 0.01)
+    }
+
+    @Test("Radar overlay preserves alpha for zero-red colors")
+    func radarOverlayZeroRedColorsRemainVisible() throws {
+        let site = NEXRADSite(icao: "TEST", name: "Test", state: "TS",
+                              latitude: 30, longitude: -98, elevationMeters: 0)
+        let radial = Radial(
+            azimuth: 0, elevation: 0.5,
+            firstGateMeters: 0, gateSizeMeters: 1000,
+            numGates: 100,
+            scale: 2.0, offset: 66.0,
+            data: Array(repeating: 96, count: 100) // 15 dBZ, standard palette green with red=0
+        )
+        let sweep = RadarSweep(site: site, scanTime: Date(), elevationAngle: 0.5,
+                               vcpNumber: 0, radials: [radial], momentType: "REF")
+        let overlay = RadarOverlay(sweep: sweep, imageSize: 64, palette: .nwsStandard)
+
+        #expect(alpha(in: overlay.image, x: 32, y: 16) > 0)
+    }
+
+    @Test("Radar overlay preserves duplicate azimuth range segments")
+    func radarOverlayPreservesDuplicateAzimuthRangeSegments() throws {
+        let site = NEXRADSite(icao: "TEST", name: "Test", state: "TS",
+                              latitude: 30, longitude: -98, elevationMeters: 0)
+        let nearRadial = Radial(
+            azimuth: 0, elevation: 0.5,
+            firstGateMeters: 0, gateSizeMeters: 1000,
+            numGates: 10,
+            scale: 2.0, offset: 66.0,
+            data: Array(repeating: 106, count: 10)
+        )
+        let farRadial = Radial(
+            azimuth: 0, elevation: 0.5,
+            firstGateMeters: 10_000, gateSizeMeters: 1000,
+            numGates: 10,
+            scale: 2.0, offset: 66.0,
+            data: Array(repeating: 106, count: 10)
+        )
+        let sweep = RadarSweep(site: site, scanTime: Date(), elevationAngle: 0.5,
+                               vcpNumber: 0, radials: [nearRadial, farRadial], momentType: "REF")
+        let overlay = RadarOverlay(sweep: sweep, imageSize: 64, palette: .nwsStandard)
+
+        #expect(alpha(in: overlay.image, x: 32, y: 24) > 0)
+        #expect(alpha(in: overlay.image, x: 32, y: 2) > 0)
+    }
+
+    @Test("Product selection chooses broad tilt coverage")
+    func productSelectionChoosesBroadTiltCoverage() throws {
+        guard let url = Bundle(for: Level2DecoderTestClass.self)
+                .url(forResource: "KEWX_sample", withExtension: "bin") else { return }
+        let data = try Data(contentsOf: url)
+        let sweeps = try Level2Decoder().decode(data: data)
+
+        let lowTilt = try #require(AppState.bestSweep(in: sweeps, product: "REF", targetElevation: 0.5))
+        let midTilt = try #require(AppState.bestSweep(in: sweeps, product: "REF", targetElevation: 2.4))
+
+        #expect(lowTilt.momentType == "REF")
+        #expect(abs(lowTilt.elevationAngle - 0.5) < 0.01)
+        #expect(lowTilt.radials.count == 2871)
+
+        #expect(midTilt.momentType == "REF")
+        #expect(abs(midTilt.elevationAngle - 2.5) < 0.01)
+        #expect(midTilt.radials.count == 348)
+    }
+
+    private func nonTransparentPixelCount(in image: CGImage) -> Int {
+        let width = image.width
+        let height = image.height
+        var bytes = [UInt8](repeating: 0, count: width * height * 4)
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        let bitmapInfo = CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue)
+            .union(.byteOrder32Big)
+        guard let ctx = CGContext(data: &bytes,
+                                  width: width,
+                                  height: height,
+                                  bitsPerComponent: 8,
+                                  bytesPerRow: width * 4,
+                                  space: colorSpace,
+                                  bitmapInfo: bitmapInfo.rawValue) else {
+            return 0
+        }
+        ctx.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+        return stride(from: 3, to: bytes.count, by: 4).reduce(0) { count, alphaIndex in
+            count + (bytes[alphaIndex] > 0 ? 1 : 0)
+        }
+    }
+
+    private func alpha(in image: CGImage, x: Int, y: Int) -> UInt8 {
+        let width = image.width
+        let height = image.height
+        var bytes = [UInt8](repeating: 0, count: width * height * 4)
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        let bitmapInfo = CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue)
+            .union(.byteOrder32Big)
+        guard let ctx = CGContext(data: &bytes,
+                                  width: width,
+                                  height: height,
+                                  bitsPerComponent: 8,
+                                  bytesPerRow: width * 4,
+                                  space: colorSpace,
+                                  bitmapInfo: bitmapInfo.rawValue) else {
+            return 0
+        }
+        ctx.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+        return bytes[(y * width + x) * 4 + 3]
+    }
+
 }
 
 // Dummy class used to locate the test bundle

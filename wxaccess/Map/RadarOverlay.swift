@@ -43,13 +43,15 @@ final class RadarOverlay: NSObject, MKOverlay, @unchecked Sendable {
     private static func rasterize(sweep: RadarSweep, size: Int, maxRangeKm: Double, palette: ColorPalette) -> CGImage {
         let width  = size
         let height = size
-        var pixels = [UInt32](repeating: 0, count: width * height)
+        var pixels = [UInt8](repeating: 0, count: width * height * 4)
 
-        // Build a lookup: azimuth (rounded to nearest 0.5°) → Radial
-        var radialMap: [Int: Radial] = [:]
+        // Build a lookup: azimuth (rounded to nearest 0.5°) → Radials.
+        // Level 2 can include multiple radials at the same azimuth with
+        // different range coverage, so keep all of them instead of overwriting.
+        var radialMap: [Int: [Radial]] = [:]
         for radial in sweep.radials {
-            let key = Int((radial.azimuth * 2).rounded())  // half-degree resolution
-            radialMap[key] = radial
+            let key = Int((radial.azimuth * 2).rounded()) % 720  // half-degree resolution
+            radialMap[key, default: []].append(radial)
         }
 
         let half = Double(size) / 2.0
@@ -67,24 +69,28 @@ final class RadarOverlay: NSObject, MKOverlay, @unchecked Sendable {
                 if az < 0 { az += 360.0 }
 
                 let azKey = Int((az * 2).rounded()) % 720
-                guard let radial = radialMap[azKey] ?? radialMap[(azKey + 1) % 720] ?? radialMap[(azKey - 1 + 720) % 720],
-                      radial.gateSizeMeters > 0 else { continue }
+                guard let value = value(atRangeKm: rangeKm,
+                                        azimuthKey: azKey,
+                                        radialMap: radialMap) else { continue }
 
-                let gateIndex = Int((rangeKm * 1000 - Double(radial.firstGateMeters)) / Double(radial.gateSizeMeters))
-                guard let value = radial.physicalValue(gateIndex: gateIndex) else { continue }
-
-                pixels[row * width + col] = momentColor(value: value, momentType: sweep.momentType, palette: palette)
+                setPixel(&pixels, row: row, col: col, width: width,
+                         color: momentColor(value: value, momentType: sweep.momentType, palette: palette))
             }
         }
 
         let colorSpace = CGColorSpaceCreateDeviceRGB()
         let bitmapInfo = CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue)
-        guard let ctx = CGContext(
-            data: &pixels,
-            width: width, height: height,
-            bitsPerComponent: 8, bytesPerRow: width * 4,
-            space: colorSpace, bitmapInfo: bitmapInfo.rawValue),
-              let image = ctx.makeImage()
+            .union(.byteOrder32Big)
+        let image = pixels.withUnsafeMutableBytes { buffer -> CGImage? in
+            guard let ctx = CGContext(
+                data: buffer.baseAddress,
+                width: width, height: height,
+                bitsPerComponent: 8, bytesPerRow: width * 4,
+                space: colorSpace, bitmapInfo: bitmapInfo.rawValue)
+            else { return nil }
+            return ctx.makeImage()
+        }
+        guard let image
         else {
             logger.error("CGContext creation failed for \(sweep.site.icao) \(sweep.momentType)")
             guard let provider = CGDataProvider(data: Data([0, 0, 0, 0]) as CFData),
@@ -96,6 +102,29 @@ final class RadarOverlay: NSObject, MKOverlay, @unchecked Sendable {
             return fallback
         }
         return image
+    }
+
+    private static func value(atRangeKm rangeKm: Double,
+                              azimuthKey: Int,
+                              radialMap: [Int: [Radial]]) -> Float? {
+        for key in [azimuthKey, (azimuthKey + 1) % 720, (azimuthKey - 1 + 720) % 720] {
+            guard let radials = radialMap[key] else { continue }
+            for radial in radials where radial.gateSizeMeters > 0 {
+                let gateIndex = Int((rangeKm * 1000 - Double(radial.firstGateMeters)) / Double(radial.gateSizeMeters))
+                if let value = radial.physicalValue(gateIndex: gateIndex) {
+                    return value
+                }
+            }
+        }
+        return nil
+    }
+
+    private static func setPixel(_ pixels: inout [UInt8], row: Int, col: Int, width: Int, color: UInt32) {
+        let offset = (row * width + col) * 4
+        pixels[offset]     = UInt8((color >> 24) & 0xFF)
+        pixels[offset + 1] = UInt8((color >> 16) & 0xFF)
+        pixels[offset + 2] = UInt8((color >> 8) & 0xFF)
+        pixels[offset + 3] = UInt8(color & 0xFF)
     }
 
     private static func momentColor(value: Float, momentType: String, palette: ColorPalette) -> UInt32 {
