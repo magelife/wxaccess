@@ -1,5 +1,6 @@
 import Testing
 import Foundation
+import CoreGraphics
 @testable import wxaccess
 
 // Dummy class for test-bundle resource lookup (mirrors Level2DecoderTestClass pattern)
@@ -29,7 +30,7 @@ struct Level3DecoderTests {
         packetCode: UInt16 = 16,
         symbOffsetHW: Int32 = 60,
         numBins: UInt16 = 5,
-        scaleFactor: UInt16 = 250,   // 0.25 km/bin
+        scaleFactor: UInt16 = 1,
         firstBin: UInt16 = 0,
         radials: [(start: UInt16, delta: UInt16, data: [UInt8])]? = nil
     ) -> Data {
@@ -75,13 +76,13 @@ struct Level3DecoderTests {
 
     // MARK: - Structure tests
 
-    @Test("Decodes synthetic EET sweep: 3 radials, 5 bins, 0.25 km resolution")
+    @Test("Decodes synthetic EET sweep: 3 radials, 5 bins, 1 km resolution")
     func decodesValidSynthetic() throws {
         let data  = makeL3Data()
         let sweep = try Level3Decoder().decode(data: data, site: site, product: .echoTops)
         #expect(sweep.radials.count == 3)
         #expect(sweep.numBins      == 5)
-        #expect(abs(sweep.binSizeKm  - 0.25) < 0.001)
+        #expect(abs(sweep.binSizeKm  - 1.0) < 0.001)
         #expect(abs(sweep.firstBinKm - 0.00) < 0.001)
         #expect(sweep.productCode  == .echoTops)
         #expect(sweep.site.icao    == "KEWX")
@@ -220,11 +221,64 @@ struct Level3DecoderTests {
         #expect(abs(sweep.scanTime.timeIntervalSince1970 - 1_705_492_800) < 1)
     }
 
-    @Test("maxRangeKm = firstBinKm + numBins × binSizeKm = 1.25 km")
+    @Test("Level 3 catalog aliases use live THREDDS product names")
+    func catalogAliases() {
+        #expect(Level3ProductCode.echoTops.catalogMnemonic == "EET")
+        #expect(Level3ProductCode.digitalVIL.catalogMnemonic == "DVL")
+        #expect(Level3ProductCode.stormTotalPrecip.catalogMnemonic == "DTA")
+        #expect(Level3ProductCode.oneHourPrecip.catalogMnemonic == "DAA")
+    }
+
+    @Test("Live-style EET geometry covers hundreds of kilometers")
+    func liveStyleEchoTopsGeometry() throws {
+        let radials = (0..<360).map { az in
+            (start: UInt16(az * 10), delta: UInt16(10), data: Array(repeating: UInt8(20), count: 346))
+        }
+        let sweep = try Level3Decoder().decode(data: makeL3Data(numBins: 346, scaleFactor: 1, radials: radials),
+                                               site: site, product: .echoTops)
+
+        #expect(abs(sweep.binSizeKm - 1.0) < 0.001)
+        #expect(abs(sweep.maxRangeKm - 346.0) < 0.001)
+    }
+
+    @Test("Level 3 overlay renders live-style radial data")
+    func level3OverlayRendersLiveStyleData() throws {
+        let radials = (0..<360).map { az in
+            (start: UInt16(az * 10), delta: UInt16(10), data: Array(repeating: UInt8(20), count: 346))
+        }
+        let sweep = try Level3Decoder().decode(data: makeL3Data(numBins: 346, scaleFactor: 1, radials: radials),
+                                               site: site, product: .echoTops)
+        let overlay = Level3Overlay(sweep: sweep, imageSize: 128)
+
+        #expect(nonTransparentPixelCount(in: overlay.image) > 1_000)
+    }
+
+    @Test("maxRangeKm = firstBinKm + numBins × binSizeKm = 5 km")
     func maxRangeKm() throws {
         let sweep = try Level3Decoder().decode(data: makeL3Data(), site: site, product: .echoTops)
-        // firstBinKm=0, numBins=5, binSizeKm=0.25 → maxRange = 1.25
-        #expect(abs(sweep.maxRangeKm - 1.25) < 0.001)
+        #expect(abs(sweep.maxRangeKm - 5.0) < 0.001)
+    }
+
+    private func nonTransparentPixelCount(in image: CGImage) -> Int {
+        let width = image.width
+        let height = image.height
+        var bytes = [UInt8](repeating: 0, count: width * height * 4)
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        let bitmapInfo = CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue)
+            .union(.byteOrder32Big)
+        guard let ctx = CGContext(data: &bytes,
+                                  width: width,
+                                  height: height,
+                                  bitsPerComponent: 8,
+                                  bytesPerRow: width * 4,
+                                  space: colorSpace,
+                                  bitmapInfo: bitmapInfo.rawValue) else {
+            return 0
+        }
+        ctx.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+        return stride(from: 3, to: bytes.count, by: 4).reduce(0) { count, alphaIndex in
+            count + (bytes[alphaIndex] > 0 ? 1 : 0)
+        }
     }
 }
 

@@ -6,7 +6,7 @@ import OSLog
 // provides the same NIDS format with 14-day rolling retention and free HTTP access.
 //
 // THREDDS uses 3-letter site codes (KEWX → EWX — drop the leading character).
-// Catalog: https://thredds.ucar.edu/thredds/catalog/nexrad/level3/{MNEMONIC}/{site}/{YYYYMMDD}/catalog.xml
+// Catalog: https://thredds.ucar.edu/thredds/catalog/nexrad/level3/{CATALOG_MNEMONIC}/{site}/{YYYYMMDD}/catalog.xml
 // Download: https://thredds.ucar.edu/thredds/fileServer/{urlPath}
 // Filename: Level3_{site}_{MNEMONIC}_{YYYYMMDD}_{HHMM}.nids
 
@@ -36,7 +36,7 @@ final class Level3Fetcher: @unchecked Sendable {
             let yyyymmdd = String(format: "%04d%02d%02d", comps.year!, comps.month!, comps.day!)
 
             guard let url = URL(string:
-                "\(threddsBase)/catalog/nexrad/level3/\(product.mnemonic)/\(site3)/\(yyyymmdd)/catalog.xml")
+                "\(threddsBase)/catalog/nexrad/level3/\(product.catalogMnemonic)/\(site3)/\(yyyymmdd)/catalog.xml")
             else { continue }
 
             guard let (xmlData, response) = try? await session.data(from: url),

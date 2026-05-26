@@ -60,22 +60,29 @@ final class Level3Decoder {
         // Symbology block offset in halfwords from the start of the message (PDB bytes 98-101 = HW 50-51)
         let symbOffsetHW = Int(data.readInt32BE(at: pdbBase + 98))
 
+        let searchBase = pdbBase + 102
+        let bzStart = findBzip2Start(in: data, from: searchBase)
+
         if symbOffsetHW > 0 {
             // Standard uncompressed path.
             let symbStart = msgStart + symbOffsetHW * 2  // halfwords → bytes
-            return try parseSymbologyBlock(data: data, at: symbStart,
-                                           site: site, product: product, scanTime: scanTime)
-        } else {
-            // Unidata archives compress the Symbology Block with bzip2.
-            // PDB offset is 0; the bzip2 stream begins immediately after the PDB.
-            let searchBase = pdbBase + 102
-            guard let bzStart = findBzip2Start(in: data, from: searchBase) else {
-                throw Level3DecodeError.noSymbologyBlock
+            if symbStart + 4 <= data.count,
+               data.readInt16BE(at: symbStart) == -1,
+               data.readUInt16BE(at: symbStart + 2) == 1 {
+                return try parseSymbologyBlock(data: data, at: symbStart,
+                                               site: site, product: product, scanTime: scanTime)
             }
-            let decompressed = try bzip2Decompress(Data(data[bzStart...]))
-            return try parseSymbologyBlock(data: decompressed, at: 0,
-                                           site: site, product: product, scanTime: scanTime)
         }
+
+        // Unidata THREDDS archives often compress the Symbology Block with bzip2.
+        // Some products still carry a positive PDB symbology offset, so prefer
+        // the actual block divider when present and otherwise fall back to BZh.
+        guard let bzStart else {
+            throw Level3DecodeError.noSymbologyBlock
+        }
+        let decompressed = try bzip2Decompress(Data(data[bzStart...]))
+        return try parseSymbologyBlock(data: decompressed, at: 0,
+                                       site: site, product: product, scanTime: scanTime)
     }
 
     // MARK: - Symbology Block parser
@@ -154,8 +161,7 @@ final class Level3Decoder {
 
         guard numBins > 0, numRadials > 0, scaleFactor > 0 else { return nil }
 
-        // Scale factor is range resolution in km × 1000 (e.g. 250 = 0.25 km/bin).
-        let binSizeKm  = Double(scaleFactor) / 1000.0
+        let binSizeKm = product.binSizeKm(packetScaleFactor: scaleFactor)
         let firstBinKm = Double(firstBin) * binSizeKm
 
         var radials: [Level3Radial] = []

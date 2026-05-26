@@ -27,6 +27,14 @@ enum Level3ProductCode: Int, CaseIterable, Identifiable, Sendable {
         }
     }
 
+    var catalogMnemonic: String {
+        switch self {
+        case .stormTotalPrecip:  "DTA"
+        case .oneHourPrecip:     "DAA"
+        default:                 mnemonic
+        }
+    }
+
     var displayName: String {
         switch self {
         case .baseReflectivity:  "Base Reflectivity (L3)"
@@ -90,5 +98,16 @@ struct Level3Radial: Sendable {
     func physicalValue(binIndex: Int, product: Level3ProductCode) -> Float? {
         guard binIndex >= 0, binIndex < data.count else { return nil }
         return product.physicalValue(code: data[binIndex])
+    }
+}
+
+extension Level3ProductCode {
+    func binSizeKm(packetScaleFactor: Int) -> Double {
+        switch self {
+        case .baseReflectivity, .baseVelocity:
+            return 0.25
+        case .echoTops, .digitalVIL, .stormTotalPrecip, .oneHourPrecip:
+            return 1.0
+        }
     }
 }
