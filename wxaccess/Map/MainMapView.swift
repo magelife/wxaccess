@@ -5,6 +5,7 @@ import CoreLocation
 // NSViewRepresentable wrapper around MKMapView for full overlay control.
 struct MainMapView: NSViewRepresentable {
     @Environment(AppState.self) var appState
+    let paneID: Int
 
     func makeNSView(context: Context) -> MKMapView {
         let map = MKMapView()
@@ -12,11 +13,7 @@ struct MainMapView: NSViewRepresentable {
         map.showsCompass = true
         map.showsScale = true
         map.isRotateEnabled = false
-        map.setRegion(
-            MKCoordinateRegion(center: appState.selectedSite.coordinate,
-                               latitudinalMeters: 800_000, longitudinalMeters: 800_000),
-            animated: false
-        )
+        map.setRegion(appState.sharedMapRegion ?? appState.defaultMapRegion(), animated: false)
         map.setAccessibilityLabel("Weather radar map")
         map.setAccessibilityHelp("Click to probe radar value at a location. Use the data panel below for VoiceOver navigation.")
         let tap = NSClickGestureRecognizer(target: context.coordinator,
@@ -27,6 +24,14 @@ struct MainMapView: NSViewRepresentable {
     }
 
     func updateNSView(_ map: MKMapView, context: Context) {
+        guard let pane = appState.pane(id: paneID) else { return }
+
+        let targetRegion = appState.sharedMapRegion ?? appState.defaultMapRegion()
+        if !regionsAreClose(map.region, targetRegion) {
+            context.coordinator.isApplyingSharedRegion = true
+            map.setRegion(targetRegion, animated: false)
+            context.coordinator.isApplyingSharedRegion = false
+        }
 
         // ── GOES Satellite ─────────────────────────────────────────────
         map.removeOverlays(map.overlays.filter { $0 is GOESTileOverlay })
@@ -50,24 +55,13 @@ struct MainMapView: NSViewRepresentable {
             map.addOverlay(CountyBorderTileOverlay(), level: .aboveRoads)
         }
 
-        // ── Radar sweep (Level 2) ──────────────────────────────────────
-        map.removeOverlays(map.overlays.filter { $0 is RadarOverlay })
-        if !appState.selectedProduct.isLevel3, let sweep = appState.currentSweep {
-            map.addOverlay(RadarOverlay(sweep: sweep, palette: appState.colorPalette),
-                           level: .aboveRoads)
-        }
-
-        // ── Radar sweep (Level 3) ──────────────────────────────────────
-        map.removeOverlays(map.overlays.filter { $0 is Level3Overlay })
-        if appState.selectedProduct.isLevel3, let l3 = appState.level3Sweep {
-            map.addOverlay(Level3Overlay(sweep: l3), level: .aboveRoads)
-        }
-
         // ── SPC outlooks ───────────────────────────────────────────────
         map.removeOverlays(map.overlays.filter { $0 is SPCOutlookPolygonOverlay })
-        for outlook in appState.outlooks {
-            for poly in outlook.polygons {
-                map.addOverlay(SPCOutlookPolygonOverlay(polygonData: poly), level: .aboveRoads)
+        if appState.showOutlooks {
+            for outlook in appState.outlooks {
+                for poly in outlook.polygons {
+                    map.addOverlay(SPCOutlookPolygonOverlay(polygonData: poly), level: .aboveRoads)
+                }
             }
         }
 
@@ -95,8 +89,10 @@ struct MainMapView: NSViewRepresentable {
 
         // ── Alert polygons ─────────────────────────────────────────────
         map.removeOverlays(map.overlays.filter { $0 is AlertPolygon })
-        for alert in appState.alerts where !alert.polygon.isEmpty {
-            map.addOverlay(AlertPolygon(alert: alert), level: .aboveLabels)
+        if appState.showAlerts {
+            for alert in appState.alerts where !alert.polygon.isEmpty {
+                map.addOverlay(AlertPolygon(alert: alert), level: .aboveRoads)
+            }
         }
 
         // ── Range rings ────────────────────────────────────────────────
@@ -127,6 +123,18 @@ struct MainMapView: NSViewRepresentable {
             }
         }
 
+        // ── Radar products are always the top visual overlay. ──────────
+        map.removeOverlays(map.overlays.filter { $0 is RadarOverlay })
+        if !pane.selectedProduct.isLevel3, let sweep = pane.currentSweep {
+            map.addOverlay(RadarOverlay(sweep: sweep, palette: appState.colorPalette),
+                           level: .aboveLabels)
+        }
+
+        map.removeOverlays(map.overlays.filter { $0 is Level3Overlay })
+        if pane.selectedProduct.isLevel3, let l3 = pane.level3Sweep {
+            map.addOverlay(Level3Overlay(sweep: l3), level: .aboveLabels)
+        }
+
         // ── Storm cell annotations ─────────────────────────────────
         map.removeAnnotations(map.annotations.filter { $0 is StormCellAnnotation })
         if appState.showStormCells {
@@ -135,7 +143,7 @@ struct MainMapView: NSViewRepresentable {
 
         // ── Probe pin ─────────────────────────────────────────────────
         map.removeAnnotations(map.annotations.filter { $0 is ProbeAnnotation })
-        if let probe = appState.probeResult {
+        if let probe = pane.probeResult {
             map.addAnnotation(ProbeAnnotation(probe: probe))
         }
 
@@ -160,15 +168,25 @@ struct MainMapView: NSViewRepresentable {
         }
     }
 
-    func makeCoordinator() -> Coordinator { Coordinator(appState: appState) }
+    func makeCoordinator() -> Coordinator { Coordinator(appState: appState, paneID: paneID) }
+
+    private func regionsAreClose(_ lhs: MKCoordinateRegion, _ rhs: MKCoordinateRegion) -> Bool {
+        abs(lhs.center.latitude - rhs.center.latitude) < 0.0001 &&
+        abs(lhs.center.longitude - rhs.center.longitude) < 0.0001 &&
+        abs(lhs.span.latitudeDelta - rhs.span.latitudeDelta) < 0.0001 &&
+        abs(lhs.span.longitudeDelta - rhs.span.longitudeDelta) < 0.0001
+    }
 
     // MARK: - Coordinator
 
     final class Coordinator: NSObject, MKMapViewDelegate, NSGestureRecognizerDelegate, @unchecked Sendable {
         private let appState: AppState
+        private let paneID: Int
+        var isApplyingSharedRegion = false
 
-        init(appState: AppState) {
+        init(appState: AppState, paneID: Int) {
             self.appState = appState
+            self.paneID = paneID
             super.init()
         }
 
@@ -187,7 +205,17 @@ struct MainMapView: NSViewRepresentable {
         @objc func handleTap(_ recognizer: NSClickGestureRecognizer) {
             guard let map = recognizer.view as? MKMapView else { return }
             let coord = map.convert(recognizer.location(in: map), toCoordinateFrom: map)
-            Task { @MainActor [appState] in appState.probe(at: coord) }
+            Task { @MainActor [appState, paneID] in
+                appState.selectPane(paneID)
+                appState.probe(at: coord, paneID: paneID)
+            }
+        }
+
+        func mapView(_ mapView: MKMapView, regionDidChangeAnimated animated: Bool) {
+            guard !isApplyingSharedRegion else { return }
+            Task { @MainActor [appState] in
+                appState.updateSharedMapRegion(mapView.region)
+            }
         }
 
         func mapView(_ mapView: MKMapView, rendererFor overlay: MKOverlay) -> MKOverlayRenderer {

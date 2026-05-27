@@ -150,12 +150,15 @@ struct Level3DecoderTests {
         #expect(p.physicalValue(code: 254) ==  62.5)
     }
 
-    @Test("Digital VIL: (code − 2) × 1.0 kg/m²")
+    @Test("Digital VIL: Build 9 HRVIL inverse transfer function")
     func physicalValueDigitalVIL() {
         let p = Level3ProductCode.digitalVIL
-        #expect(p.physicalValue(code: 2)   ==   0.0)
-        #expect(p.physicalValue(code: 52)  ==  50.0)
-        #expect(p.physicalValue(code: 102) == 100.0)
+        #expect(abs((p.physicalValue(code: 2) ?? -999) - 0.0) < 0.001)
+        #expect(abs((p.physicalValue(code: 19) ?? -999) - 0.1875) < 0.001)
+        #expect(abs((p.physicalValue(code: 20) ?? -999) - 0.1932) < 0.001)
+        #expect(abs((p.physicalValue(code: 52) ?? -999) - 0.4402) < 0.001)
+        #expect(abs((p.physicalValue(code: 102) ?? -999) - 1.5929) < 0.001)
+        #expect(abs((p.physicalValue(code: 254) ?? -999) - 79.47) < 0.1)
     }
 
     @Test("Storm Total Precip: (code − 2) × 0.05 inches")

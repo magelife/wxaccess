@@ -146,19 +146,19 @@ final class Level3Overlay: NSObject, MKOverlay, @unchecked Sendable {
         }
     }
 
-    // NWS velocity (m/s, negative = toward radar)
+    // Velocity (m/s, negative = toward radar)
     private static func velColor(ms: Float) -> UInt32 {
         switch ms {
-        case ..<(-50):    return rgba(0x00, 0x00, 0x7F)
-        case -50 ..< -30: return rgba(0x00, 0x00, 0xEC)
-        case -30 ..< -20: return rgba(0x00, 0x9E, 0xFF)
-        case -20 ..< -10: return rgba(0x00, 0xF0, 0xF0)
-        case -10 ..< 0:   return rgba(0x00, 0xC8, 0x00)
-        case 0   ..< 10:  return rgba(0xC8, 0xC8, 0x00)
-        case 10  ..< 20:  return rgba(0xFF, 0x96, 0x00)
-        case 20  ..< 30:  return rgba(0xFF, 0x00, 0x00)
-        case 30  ..< 50:  return rgba(0xC8, 0x00, 0x00)
-        default:          return rgba(0x7F, 0x00, 0x00)
+        case ..<(-50):    return rgba(0x60, 0x00, 0x00)
+        case -50 ..< -30: return rgba(0x90, 0x00, 0x00)
+        case -30 ..< -20: return rgba(0xC8, 0x00, 0x00)
+        case -20 ..< -10: return rgba(0xF0, 0x00, 0x00)
+        case -10 ..< 0:   return rgba(0xFF, 0x40, 0x40)
+        case 0   ..< 10:  return rgba(0x00, 0xE8, 0x00)
+        case 10  ..< 20:  return rgba(0x00, 0xB8, 0x00)
+        case 20  ..< 30:  return rgba(0x00, 0x88, 0x00)
+        case 30  ..< 50:  return rgba(0x00, 0x60, 0x00)
+        default:          return rgba(0x00, 0x40, 0x00)
         }
     }
 
@@ -179,15 +179,22 @@ final class Level3Overlay: NSObject, MKOverlay, @unchecked Sendable {
     // Digital VIL (kg/m²)
     private static func vilColor(kgm2: Float) -> UInt32 {
         switch kgm2 {
-        case ..<5:    return rgba(0x00, 0x40, 0xFF)
-        case 5..<10:  return rgba(0x00, 0x80, 0xFF)
-        case 10..<20: return rgba(0x00, 0xD0, 0xFF)
-        case 20..<30: return rgba(0x00, 0xFF, 0x80)
-        case 30..<40: return rgba(0xFF, 0xFF, 0x00)
-        case 40..<50: return rgba(0xFF, 0x80, 0x00)
-        case 50..<60: return rgba(0xFF, 0x00, 0x00)
-        case 60..<70: return rgba(0xC8, 0x00, 0xC8)
-        default:      return rgba(0xFF, 0xFF, 0xFF)
+        case ..<1:    return rgba(0x00, 0x00, 0x00, a: 0)
+        case 1..<5:   return rgba(0x9C, 0x9C, 0x9C)
+        case 5..<10:  return rgba(0x76, 0x76, 0x76)
+        case 10..<15: return rgba(0xFA, 0xAA, 0xAA)
+        case 15..<20: return rgba(0xEE, 0x8C, 0x8C)
+        case 20..<25: return rgba(0xC9, 0x70, 0x70)
+        case 25..<30: return rgba(0x00, 0xFB, 0x90)
+        case 30..<35: return rgba(0x00, 0xBB, 0x00)
+        case 35..<40: return rgba(0xFF, 0xFF, 0x70)
+        case 40..<45: return rgba(0xD0, 0xD0, 0x60)
+        case 45..<50: return rgba(0xFF, 0x60, 0x60)
+        case 50..<55: return rgba(0xDA, 0x00, 0x00)
+        case 55..<60: return rgba(0xAE, 0x00, 0x00)
+        case 60..<65: return rgba(0x00, 0x00, 0xFF)
+        case 65..<70: return rgba(0xFF, 0xFF, 0xFF)
+        default:      return rgba(0xE7, 0x00, 0xFF)
         }
     }
 
@@ -225,7 +232,12 @@ final class Level3OverlayRenderer: MKOverlayRenderer {
 
     override func draw(_ mapRect: MKMapRect, zoomScale: MKZoomScale, in ctx: CGContext) {
         let drawRect = rect(for: l3Overlay.boundingMapRect)
+        ctx.saveGState()
+        ctx.translateBy(x: drawRect.midX, y: drawRect.midY)
+        ctx.scaleBy(x: 1, y: -1)
+        ctx.translateBy(x: -drawRect.midX, y: -drawRect.midY)
         ctx.draw(l3Overlay.image, in: drawRect)
+        ctx.restoreGState()
     }
 
     override func canDraw(_ mapRect: MKMapRect, zoomScale: MKZoomScale) -> Bool {

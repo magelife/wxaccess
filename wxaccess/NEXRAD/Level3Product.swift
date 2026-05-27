@@ -67,7 +67,11 @@ enum Level3ProductCode: Int, CaseIterable, Identifiable, Sendable {
         case .baseReflectivity:  return (level - 2) * 0.5 - 32.5
         case .baseVelocity:      return (level - 2) * 0.5 - 63.5
         case .echoTops:          return (level - 2) * 1.0 + 5.0
-        case .digitalVIL:        return (level - 2) * 1.0
+        case .digitalVIL:
+            if level < 20 {
+                return (level - 2) / 90.66
+            }
+            return exp((level - 83.9028) / 38.8763)
         case .stormTotalPrecip,
              .oneHourPrecip:     return (level - 2) * 0.05
         }

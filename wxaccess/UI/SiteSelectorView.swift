@@ -48,6 +48,7 @@ struct SiteSelectorView: View {
                 SiteRow(site: site,
                         isActive: appState.selectedSite.id == site.id) {
                     appState.selectedSite = site
+                    appState.updateSharedMapRegion(appState.defaultMapRegion())
                     Task { await appState.refresh() }
                 }
             }

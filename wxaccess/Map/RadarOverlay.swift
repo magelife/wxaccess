@@ -138,19 +138,19 @@ final class RadarOverlay: NSObject, MKOverlay, @unchecked Sendable {
         }
     }
 
-    // NWS velocity color table (m/s; negative = toward radar)
+    // Velocity color table (m/s; negative = toward radar)
     private static func velocityColor(ms: Float) -> UInt32 {
         switch ms {
-        case ..<(-50):  return rgba(0x00, 0x00, 0x7F)
-        case -50 ..< -30: return rgba(0x00, 0x00, 0xEC)
-        case -30 ..< -20: return rgba(0x00, 0x9E, 0xFF)
-        case -20 ..< -10: return rgba(0x00, 0xF0, 0xF0)
-        case -10 ..< 0:   return rgba(0x00, 0xC8, 0x00)
-        case 0   ..< 10:  return rgba(0xC8, 0xC8, 0x00)
-        case 10  ..< 20:  return rgba(0xFF, 0x96, 0x00)
-        case 20  ..< 30:  return rgba(0xFF, 0x00, 0x00)
-        case 30  ..< 50:  return rgba(0xC8, 0x00, 0x00)
-        default:          return rgba(0x7F, 0x00, 0x00)
+        case ..<(-50):    return rgba(0x60, 0x00, 0x00)
+        case -50 ..< -30: return rgba(0x90, 0x00, 0x00)
+        case -30 ..< -20: return rgba(0xC8, 0x00, 0x00)
+        case -20 ..< -10: return rgba(0xF0, 0x00, 0x00)
+        case -10 ..< 0:   return rgba(0xFF, 0x40, 0x40)
+        case 0   ..< 10:  return rgba(0x00, 0xE8, 0x00)
+        case 10  ..< 20:  return rgba(0x00, 0xB8, 0x00)
+        case 20  ..< 30:  return rgba(0x00, 0x88, 0x00)
+        case 30  ..< 50:  return rgba(0x00, 0x60, 0x00)
+        default:          return rgba(0x00, 0x40, 0x00)
         }
     }
 
@@ -171,13 +171,17 @@ final class RadarOverlay: NSObject, MKOverlay, @unchecked Sendable {
     // Correlation coefficient (0–1)
     private static func rhoColor(cc: Float) -> UInt32 {
         switch cc {
-        case ..<0.7:    return rgba(0x00, 0x00, 0x00)
-        case 0.7 ..< 0.85: return rgba(0x96, 0x32, 0x96)
-        case 0.85 ..< 0.90: return rgba(0x00, 0x00, 0xFF)
-        case 0.90 ..< 0.95: return rgba(0x00, 0xC8, 0xFF)
-        case 0.95 ..< 0.97: return rgba(0x00, 0xC8, 0x00)
-        case 0.97 ..< 0.99: return rgba(0xFF, 0xFF, 0x00)
-        default:        return rgba(0xFF, 0xFF, 0xFF)
+        case ..<0.70:      return rgba(0x10, 0x10, 0x30)
+        case 0.70 ..< 0.80: return rgba(0x00, 0x00, 0x8F)
+        case 0.80 ..< 0.85: return rgba(0x00, 0x30, 0xD8)
+        case 0.85 ..< 0.90: return rgba(0x44, 0x00, 0xFF)
+        case 0.90 ..< 0.93: return rgba(0xE8, 0xE0, 0x00)
+        case 0.93 ..< 0.95: return rgba(0xFF, 0xD0, 0x00)
+        case 0.95 ..< 0.96: return rgba(0xFF, 0xB0, 0x00)
+        case 0.96 ..< 0.97: return rgba(0xFF, 0x60, 0x40)
+        case 0.97 ..< 0.98: return rgba(0xFF, 0x30, 0x40)
+        case 0.98 ..< 0.99: return rgba(0xFF, 0x00, 0x00)
+        default:            return rgba(0xC0, 0x00, 0x00)
         }
     }
 

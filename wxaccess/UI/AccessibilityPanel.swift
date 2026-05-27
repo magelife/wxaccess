@@ -9,6 +9,8 @@ struct AccessibilityPanel: View {
     var body: some View {
         DisclosureGroup {
             VStack(alignment: .leading, spacing: 8) {
+                paneSummarySection
+                Divider()
                 radarSection
                 if let probe = appState.probeResult {
                     Divider(); probeSection(probe)
@@ -56,43 +58,103 @@ struct AccessibilityPanel: View {
 
     // MARK: - Radar
 
-    private var radarSection: some View {
+    private var paneSummarySection: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Label("Radar", systemImage: "waveform.path.ecg")
+            Label("Visible Panes", systemImage: "square.grid.2x2")
                 .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-            if let sweep = appState.currentSweep {
+            Picker("Active pane", selection: activePaneBinding) {
+                ForEach(appState.visiblePanes) { pane in
+                    Text(pane.displayName).tag(pane.id)
+                }
+            }
+            .pickerStyle(.segmented)
+            .accessibilityLabel("Active radar pane: \(appState.activePaneDisplayName)")
+            .accessibilityHint("Selects which pane is described and controlled")
+
+            ForEach(appState.visiblePanes) { pane in
+                Button {
+                    appState.selectPane(pane.id, announce: true)
+                } label: {
+                    HStack {
+                        Text(pane.displayName + ":")
+                            .font(.caption).foregroundStyle(.secondary)
+                            .frame(width: 56, alignment: .leading)
+                        Text(paneAccessibilitySummary(pane))
+                            .font(.caption.monospacedDigit())
+                            .lineLimit(1)
+                        Spacer()
+                    }
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("\(pane.displayName): \(paneAccessibilitySummary(pane))")
+                .accessibilityHint("Selects this pane for detailed radar data")
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Visible radar panes")
+    }
+
+    private var activePaneBinding: Binding<Int> {
+        Binding(
+            get: { appState.activePaneID },
+            set: { appState.selectPane($0, announce: true) }
+        )
+    }
+
+    private var radarSection: some View {
+        let pane = appState.activePane
+        return VStack(alignment: .leading, spacing: 4) {
+            Label("\(pane.displayName) Radar", systemImage: "waveform.path.ecg")
+                .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+            if let sweep = pane.currentSweep {
                 Group {
                     dataRow(label: "Site",    value: sweep.site.displayName)
-                    dataRow(label: "Product", value: appState.selectedProduct.displayName)
+                    dataRow(label: "Product", value: pane.selectedProduct.displayName)
                     dataRow(label: "Tilt",    value: String(format: "%.1f°", sweep.elevationAngle))
                     dataRow(label: "Time",    value: sweep.scanTime.formatted(date: .abbreviated, time: .shortened) + " UTC")
                     dataRow(label: "VCP",     value: "\(sweep.vcpNumber)")
                     dataRow(label: "Gates",   value: "\(sweep.radials.first?.numGates ?? 0) at \(sweep.radials.first?.gateSizeMeters ?? 0) m spacing")
                 }
                 .accessibilityElement(children: .contain)
-                .accessibilityLabel("Radar sweep details")
-                Text(productLegendText(for: appState.selectedProduct))
+                .accessibilityLabel("\(pane.displayName) radar sweep details")
+                Text(productLegendText(for: pane.selectedProduct))
                     .font(.caption2).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
-                    .accessibilityLabel("Value scale: \(productLegendText(for: appState.selectedProduct))")
-            } else if let l3 = appState.level3Sweep {
+                    .accessibilityLabel("Value scale: \(productLegendText(for: pane.selectedProduct))")
+            } else if let l3 = pane.level3Sweep {
                 Group {
                     dataRow(label: "Site",    value: l3.site.displayName)
                     dataRow(label: "Product", value: l3.productCode.displayName)
                     dataRow(label: "Time",    value: l3.scanTime.formatted(date: .abbreviated, time: .shortened) + " UTC")
                 }
                 .accessibilityElement(children: .contain)
-                .accessibilityLabel("Level 3 radar sweep details")
-                Text(productLegendText(for: appState.selectedProduct))
+                .accessibilityLabel("\(pane.displayName) Level 3 radar sweep details")
+                Text(productLegendText(for: pane.selectedProduct))
                     .font(.caption2).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
-                    .accessibilityLabel("Value scale: \(productLegendText(for: appState.selectedProduct))")
+                    .accessibilityLabel("Value scale: \(productLegendText(for: pane.selectedProduct))")
+            } else if let error = pane.errorMessage {
+                Text(error)
+                    .font(.caption).foregroundStyle(.red)
+                    .accessibilityLabel("\(pane.displayName) error: \(error)")
             } else {
-                Text(appState.isLoading || appState.isLoadingLevel3 ? "Loading radar data…" : "No radar data loaded.")
+                Text(appState.isLoading || pane.isLoadingLevel3 ? "Loading radar data…" : "No radar data loaded.")
                     .font(.caption).foregroundStyle(.secondary)
                     .accessibilityAddTraits(.updatesFrequently)
             }
         }
+    }
+
+    private func paneAccessibilitySummary(_ pane: RadarPaneState) -> String {
+        if pane.isLoadingLevel3 { return "Loading \(pane.selectedProduct.displayName)" }
+        if let error = pane.errorMessage { return "Error, \(error)" }
+        if let sweep = pane.currentSweep {
+            return "\(pane.selectedProduct.displayName), \(String(format: "%.1f", sweep.elevationAngle)) degrees, \(sweep.scanTime.formatted(date: .omitted, time: .shortened)) UTC"
+        }
+        if let l3 = pane.level3Sweep {
+            return "\(l3.productCode.displayName), \(l3.scanTime.formatted(date: .omitted, time: .shortened)) UTC"
+        }
+        return "\(pane.selectedProduct.displayName), no data loaded"
     }
 
     private func productLegendText(for product: RadarProduct) -> String {
@@ -100,19 +162,19 @@ struct AccessibilityPanel: View {
         case .reflectivity:
             return "5–20 dBZ: light precipitation. 35–50 dBZ: moderate to heavy rain. 55–65 dBZ: intense rain, possible large hail. 70+ dBZ: extreme — large hail likely."
         case .velocity:
-            return "Negative values (blue/cyan): moving toward radar. Positive (yellow/red): moving away. Values beyond ±27 m/s may be range-aliased."
+            return "Negative values (red): moving toward radar. Positive values (green): moving away. Bright red and bright green near zero emphasize the inbound/outbound boundary; darker shades indicate stronger speeds. Values beyond ±27 m/s may be range-aliased."
         case .spectrumWidth:
             return "0–4 m/s: steady laminar flow. 8–13 m/s: turbulence or wind shear. >13 m/s: strong turbulence or rapidly changing winds."
         case .differentialReflectivity:
             return "< 0 dB: tumbling ice or hail. 0–1 dB: small raindrops or ice. 1–3 dB: rain. > 3 dB: large drops or wet hail coating."
         case .correlationCoefficient:
-            return "> 0.97: uniform meteorological targets. 0.85–0.97: mixed-phase precipitation or rain. < 0.85: non-meteorological echoes (insects, ground clutter, chaff, or biological)."
+            return "High correlation coefficient values are red, indicating uniform meteorological targets. Values from 0.90 to 0.96 are yellow shades. Lower values shift through purple into blue, highlighting mixed targets, hail, debris, clutter, chaff, or biological echoes."
         case .differentialPhase:
             return "Increases monotonically through heavy rain. Used for attenuation correction and rain-rate estimation; best interpreted as a trend rather than absolute values."
         case .echoTops:
             return "Echo top height in thousands of feet. 30–40 kft: moderate convection. 40–55 kft: deep thunderstorm. > 55 kft: severe or supercell storm."
         case .vil:
-            return "Vertically Integrated Liquid (kg/m²). > 30: heavy rain possible. > 50: hail possible. A sudden large drop in VIL may indicate hail descent."
+            return "Vertically Integrated Liquid (kg/m²). Values below 1 are not drawn. > 30: heavy rain possible. > 50: hail possible. A sudden large drop in VIL may indicate hail descent."
         case .stormTotalPrecip, .oneHourPrecip:
             return "Estimated accumulated precipitation in inches. Accuracy decreases with distance from radar and in areas with beam blockage or bright-band contamination."
         }
