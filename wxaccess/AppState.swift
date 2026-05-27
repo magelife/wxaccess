@@ -230,6 +230,13 @@ final class AppState: NSObject {
     }
 
     func updateSharedMapRegion(_ region: MKCoordinateRegion) {
+        if let current = sharedMapRegion,
+           abs(current.center.latitude - region.center.latitude) < 0.0001,
+           abs(current.center.longitude - region.center.longitude) < 0.0001,
+           abs(current.span.latitudeDelta - region.span.latitudeDelta) < 0.0001,
+           abs(current.span.longitudeDelta - region.span.longitudeDelta) < 0.0001 {
+            return
+        }
         sharedMapRegion = region
     }
 

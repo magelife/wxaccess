@@ -33,139 +33,7 @@ struct MainMapView: NSViewRepresentable {
             context.coordinator.isApplyingSharedRegion = false
         }
 
-        // ── GOES Satellite ─────────────────────────────────────────────
-        map.removeOverlays(map.overlays.filter { $0 is GOESTileOverlay })
-        if appState.showSatellite {
-            map.addOverlay(GOESTileOverlay(product: appState.satelliteProduct), level: .aboveRoads)
-        }
-
-        // ── Model layer ────────────────────────────────────────────────
-        map.removeOverlays(map.overlays.filter { $0 is ModelTileOverlay })
-        if appState.showModelLayer {
-            map.addOverlay(
-                ModelTileOverlay(product: appState.modelProduct,
-                                 forecastMinutes: appState.modelForecastOffset.rawValue),
-                level: .aboveRoads
-            )
-        }
-
-        // ── County / state borders ──────────────────────────────────────
-        map.removeOverlays(map.overlays.filter { $0 is CountyBorderTileOverlay })
-        if appState.showCountyBorders {
-            map.addOverlay(CountyBorderTileOverlay(), level: .aboveRoads)
-        }
-
-        // ── SPC outlooks ───────────────────────────────────────────────
-        map.removeOverlays(map.overlays.filter { $0 is SPCOutlookPolygonOverlay })
-        if appState.showOutlooks {
-            for outlook in appState.outlooks {
-                for poly in outlook.polygons {
-                    map.addOverlay(SPCOutlookPolygonOverlay(polygonData: poly), level: .aboveRoads)
-                }
-            }
-        }
-
-        // ── Mesoscale discussions ──────────────────────────────────────
-        map.removeOverlays(map.overlays.filter { $0 is SPCMDPolygonOverlay })
-        if appState.showMesoscaleDiscussions {
-            for md in appState.mesoscaleDiscussions where !md.polygon.isEmpty {
-                map.addOverlay(SPCMDPolygonOverlay(discussion: md), level: .aboveRoads)
-            }
-        }
-
-        // ── Placefiles (lines + polygons) ─────────────────────────────
-        map.removeOverlays(map.overlays.filter { $0 is PlacefilePolylineOverlay || $0 is PlacefilePolygonOverlay })
-        for placefile in appState.placefiles {
-            for item in placefile.items {
-                switch item.geometry {
-                case .line(let pts, let w) where pts.count >= 2:
-                    map.addOverlay(PlacefilePolylineOverlay(item: item, points: pts, width: w), level: .aboveRoads)
-                case .polygon(let pts) where pts.count >= 3:
-                    map.addOverlay(PlacefilePolygonOverlay(item: item, points: pts), level: .aboveRoads)
-                default: break
-                }
-            }
-        }
-
-        // ── Alert polygons ─────────────────────────────────────────────
-        map.removeOverlays(map.overlays.filter { $0 is AlertPolygon })
-        if appState.showAlerts {
-            for alert in appState.alerts where !alert.polygon.isEmpty {
-                map.addOverlay(AlertPolygon(alert: alert), level: .aboveRoads)
-            }
-        }
-
-        // ── Range rings ────────────────────────────────────────────────
-        map.removeOverlays(map.overlays.filter { $0 is RangeRingOverlay })
-        if appState.showRangeRings {
-            let center = appState.selectedSite.coordinate
-            for km in [50.0, 100.0, 150.0, 230.0] {
-                map.addOverlay(RangeRingOverlay.make(center: center, distanceKm: km),
-                               level: .aboveRoads)
-            }
-        }
-
-        // ── Storm cell tracks ──────────────────────────────────────
-        map.removeOverlays(map.overlays.filter { $0 is StormCellTrackOverlay })
-        if appState.showStormCells {
-            for cell in appState.stormCells {
-                if cell.past.count >= 2 {
-                    let pts = cell.past + [cell.current]
-                    map.addOverlay(StormCellTrackOverlay(coords: pts, type: .past),
-                                   level: .aboveLabels)
-                }
-                if let f30 = cell.forecast30min {
-                    var pts = [cell.current, f30]
-                    if let f60 = cell.forecast60min { pts.append(f60) }
-                    map.addOverlay(StormCellTrackOverlay(coords: pts, type: .forecast),
-                                   level: .aboveLabels)
-                }
-            }
-        }
-
-        // ── Radar products are always the top visual overlay. ──────────
-        map.removeOverlays(map.overlays.filter { $0 is RadarOverlay })
-        if !pane.selectedProduct.isLevel3, let sweep = pane.currentSweep {
-            map.addOverlay(RadarOverlay(sweep: sweep, palette: appState.colorPalette),
-                           level: .aboveLabels)
-        }
-
-        map.removeOverlays(map.overlays.filter { $0 is Level3Overlay })
-        if pane.selectedProduct.isLevel3, let l3 = pane.level3Sweep {
-            map.addOverlay(Level3Overlay(sweep: l3), level: .aboveLabels)
-        }
-
-        // ── Storm cell annotations ─────────────────────────────────
-        map.removeAnnotations(map.annotations.filter { $0 is StormCellAnnotation })
-        if appState.showStormCells {
-            map.addAnnotations(appState.stormCells.map { StormCellAnnotation(cell: $0) })
-        }
-
-        // ── Probe pin ─────────────────────────────────────────────────
-        map.removeAnnotations(map.annotations.filter { $0 is ProbeAnnotation })
-        if let probe = pane.probeResult {
-            map.addAnnotation(ProbeAnnotation(probe: probe))
-        }
-
-        // ── Annotations ────────────────────────────────────────────────
-        map.removeAnnotations(map.annotations.filter { $0 is StormReportAnnotation })
-        if appState.showStormReports {
-            map.addAnnotations(appState.stormReports.map { StormReportAnnotation(report: $0) })
-        }
-
-        map.removeAnnotations(map.annotations.filter { $0 is SurfaceObsAnnotation })
-        if appState.showSurfaceObs {
-            map.addAnnotations(appState.surfaceObs.map { SurfaceObsAnnotation(obs: $0) })
-        }
-
-        map.removeAnnotations(map.annotations.filter { $0 is PlacefileAnnotation })
-        for placefile in appState.placefiles {
-            for item in placefile.items {
-                if case .point = item.geometry {
-                    map.addAnnotation(PlacefileAnnotation(item: item))
-                }
-            }
-        }
+        context.coordinator.updateMapContent(map, appState: appState, pane: pane)
     }
 
     func makeCoordinator() -> Coordinator { Coordinator(appState: appState, paneID: paneID) }
@@ -182,12 +50,183 @@ struct MainMapView: NSViewRepresentable {
     final class Coordinator: NSObject, MKMapViewDelegate, NSGestureRecognizerDelegate, @unchecked Sendable {
         private let appState: AppState
         private let paneID: Int
+        private var contextOverlaySignature: String?
+        private var radarOverlaySignature: String?
+        private var annotationSignature: String?
+        private var lastRegionBroadcast = Date.distantPast
+        private var pendingRegion: MKCoordinateRegion?
+        private var pendingRegionTask: Task<Void, Never>?
         var isApplyingSharedRegion = false
 
         init(appState: AppState, paneID: Int) {
             self.appState = appState
             self.paneID = paneID
             super.init()
+        }
+
+        @MainActor
+        func updateMapContent(_ map: MKMapView, appState: AppState, pane: RadarPaneState) {
+            updateContextOverlays(map, appState: appState)
+            updateRadarOverlay(map, appState: appState, pane: pane)
+            updateAnnotations(map, appState: appState, pane: pane)
+        }
+
+        @MainActor
+        private func updateContextOverlays(_ map: MKMapView, appState: AppState) {
+            let signature = contextSignature(appState)
+            guard signature != contextOverlaySignature else { return }
+            contextOverlaySignature = signature
+
+            map.removeOverlays(map.overlays.filter {
+                $0 is GOESTileOverlay ||
+                $0 is ModelTileOverlay ||
+                $0 is CountyBorderTileOverlay ||
+                $0 is SPCOutlookPolygonOverlay ||
+                $0 is SPCMDPolygonOverlay ||
+                $0 is PlacefilePolylineOverlay ||
+                $0 is PlacefilePolygonOverlay ||
+                $0 is AlertPolygon ||
+                $0 is RangeRingOverlay ||
+                $0 is StormCellTrackOverlay
+            })
+
+            // ── GOES Satellite ─────────────────────────────────────────
+            if appState.showSatellite {
+                map.addOverlay(GOESTileOverlay(product: appState.satelliteProduct), level: .aboveRoads)
+            }
+
+            // ── Model layer ────────────────────────────────────────────
+            if appState.showModelLayer {
+                map.addOverlay(
+                    ModelTileOverlay(product: appState.modelProduct,
+                                     forecastMinutes: appState.modelForecastOffset.rawValue),
+                    level: .aboveRoads
+                )
+            }
+
+            // ── County / state borders ─────────────────────────────────
+            if appState.showCountyBorders {
+                map.addOverlay(CountyBorderTileOverlay(), level: .aboveRoads)
+            }
+
+            // ── SPC outlooks ───────────────────────────────────────────
+            if appState.showOutlooks {
+                for outlook in appState.outlooks {
+                    for poly in outlook.polygons {
+                        map.addOverlay(SPCOutlookPolygonOverlay(polygonData: poly), level: .aboveRoads)
+                    }
+                }
+            }
+
+            // ── Mesoscale discussions ──────────────────────────────────
+            if appState.showMesoscaleDiscussions {
+                for md in appState.mesoscaleDiscussions where !md.polygon.isEmpty {
+                    map.addOverlay(SPCMDPolygonOverlay(discussion: md), level: .aboveRoads)
+                }
+            }
+
+            // ── Placefiles (lines + polygons) ─────────────────────────
+            for placefile in appState.placefiles {
+                for item in placefile.items {
+                    switch item.geometry {
+                    case .line(let pts, let w) where pts.count >= 2:
+                        map.addOverlay(PlacefilePolylineOverlay(item: item, points: pts, width: w), level: .aboveRoads)
+                    case .polygon(let pts) where pts.count >= 3:
+                        map.addOverlay(PlacefilePolygonOverlay(item: item, points: pts), level: .aboveRoads)
+                    default: break
+                    }
+                }
+            }
+
+            // ── Alert polygons ─────────────────────────────────────────
+            if appState.showAlerts {
+                for alert in appState.alerts where !alert.polygon.isEmpty {
+                    map.addOverlay(AlertPolygon(alert: alert), level: .aboveRoads)
+                }
+            }
+
+            // ── Range rings ────────────────────────────────────────────
+            if appState.showRangeRings {
+                let center = appState.selectedSite.coordinate
+                for km in [50.0, 100.0, 150.0, 230.0] {
+                    map.addOverlay(RangeRingOverlay.make(center: center, distanceKm: km),
+                                   level: .aboveRoads)
+                }
+            }
+
+            // ── Storm cell tracks ──────────────────────────────────────
+            if appState.showStormCells {
+                for cell in appState.stormCells {
+                    if cell.past.count >= 2 {
+                        let pts = cell.past + [cell.current]
+                        map.addOverlay(StormCellTrackOverlay(coords: pts, type: .past),
+                                       level: .aboveLabels)
+                    }
+                    if let f30 = cell.forecast30min {
+                        var pts = [cell.current, f30]
+                        if let f60 = cell.forecast60min { pts.append(f60) }
+                        map.addOverlay(StormCellTrackOverlay(coords: pts, type: .forecast),
+                                       level: .aboveLabels)
+                    }
+                }
+            }
+        }
+
+        @MainActor
+        private func updateRadarOverlay(_ map: MKMapView, appState: AppState, pane: RadarPaneState) {
+            let signature = radarSignature(appState: appState, pane: pane)
+            guard signature != radarOverlaySignature else { return }
+            radarOverlaySignature = signature
+
+            // ── Radar products are always the top visual overlay. ──────
+            map.removeOverlays(map.overlays.filter { $0 is RadarOverlay || $0 is Level3Overlay })
+            if !pane.selectedProduct.isLevel3, let sweep = pane.currentSweep {
+                map.addOverlay(RadarOverlay(sweep: sweep, palette: appState.colorPalette),
+                               level: .aboveLabels)
+            }
+
+            if pane.selectedProduct.isLevel3, let l3 = pane.level3Sweep {
+                map.addOverlay(Level3Overlay(sweep: l3), level: .aboveLabels)
+            }
+        }
+
+        @MainActor
+        private func updateAnnotations(_ map: MKMapView, appState: AppState, pane: RadarPaneState) {
+            let signature = annotationsSignature(appState: appState, pane: pane)
+            guard signature != annotationSignature else { return }
+            annotationSignature = signature
+
+            // ── Storm cell annotations ─────────────────────────────────
+            map.removeAnnotations(map.annotations.filter { $0 is StormCellAnnotation })
+            if appState.showStormCells {
+                map.addAnnotations(appState.stormCells.map { StormCellAnnotation(cell: $0) })
+            }
+
+            // ── Probe pin ──────────────────────────────────────────────
+            map.removeAnnotations(map.annotations.filter { $0 is ProbeAnnotation })
+            if let probe = pane.probeResult {
+                map.addAnnotation(ProbeAnnotation(probe: probe))
+            }
+
+            // ── Annotations ────────────────────────────────────────────
+            map.removeAnnotations(map.annotations.filter { $0 is StormReportAnnotation })
+            if appState.showStormReports {
+                map.addAnnotations(appState.stormReports.map { StormReportAnnotation(report: $0) })
+            }
+
+            map.removeAnnotations(map.annotations.filter { $0 is SurfaceObsAnnotation })
+            if appState.showSurfaceObs {
+                map.addAnnotations(appState.surfaceObs.map { SurfaceObsAnnotation(obs: $0) })
+            }
+
+            map.removeAnnotations(map.annotations.filter { $0 is PlacefileAnnotation })
+            for placefile in appState.placefiles {
+                for item in placefile.items {
+                    if case .point = item.geometry {
+                        map.addAnnotation(PlacefileAnnotation(item: item))
+                    }
+                }
+            }
         }
 
         func gestureRecognizer(_ gestureRecognizer: NSGestureRecognizer,
@@ -213,9 +252,92 @@ struct MainMapView: NSViewRepresentable {
 
         func mapView(_ mapView: MKMapView, regionDidChangeAnimated animated: Bool) {
             guard !isApplyingSharedRegion else { return }
-            Task { @MainActor [appState] in
-                appState.updateSharedMapRegion(mapView.region)
+            broadcastRegion(mapView.region)
+        }
+
+        func mapViewDidChangeVisibleRegion(_ mapView: MKMapView) {
+            guard !isApplyingSharedRegion else { return }
+            scheduleRegionBroadcast(mapView.region)
+        }
+
+        private func scheduleRegionBroadcast(_ region: MKCoordinateRegion) {
+            pendingRegion = region
+            let now = Date()
+            let elapsed = now.timeIntervalSince(lastRegionBroadcast)
+            let interval = 1.0 / 15.0
+            if elapsed >= interval {
+                broadcastRegion(region)
+                return
             }
+            guard pendingRegionTask == nil else { return }
+            let delay = max(interval - elapsed, 0)
+            pendingRegionTask = Task { @MainActor [weak self] in
+                try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+                guard let self, let pending = self.pendingRegion else { return }
+                self.pendingRegionTask = nil
+                self.broadcastRegion(pending)
+            }
+        }
+
+        private func broadcastRegion(_ region: MKCoordinateRegion) {
+            lastRegionBroadcast = Date()
+            pendingRegion = region
+            Task { @MainActor [appState] in
+                appState.updateSharedMapRegion(region)
+            }
+        }
+
+        @MainActor
+        private func contextSignature(_ appState: AppState) -> String {
+            let outlookIDs = appState.outlooks.flatMap { $0.polygons.map(\.id) }.joined(separator: ",")
+            let alertIDs = appState.alerts.map(\.id).joined(separator: ",")
+            let mdIDs = appState.mesoscaleDiscussions.map(\.id).joined(separator: ",")
+            let placefileIDs = appState.placefiles.map { "\($0.id):\($0.items.count):\($0.fetchedAt.timeIntervalSince1970)" }
+                .joined(separator: ",")
+            let cellIDs = appState.stormCells.map(\.id).joined(separator: ",")
+            return [
+                "\(appState.showSatellite):\(appState.satelliteProduct)",
+                "\(appState.showModelLayer):\(appState.modelProduct):\(appState.modelForecastOffset.rawValue)",
+                "\(appState.showCountyBorders)",
+                "\(appState.showOutlooks):\(outlookIDs)",
+                "\(appState.showMesoscaleDiscussions):\(mdIDs)",
+                "placefiles:\(placefileIDs)",
+                "\(appState.showAlerts):\(alertIDs)",
+                "\(appState.showRangeRings):\(appState.selectedSite.id)",
+                "\(appState.showStormCells):\(cellIDs)",
+            ].joined(separator: "|")
+        }
+
+        @MainActor
+        private func radarSignature(appState: AppState, pane: RadarPaneState) -> String {
+            if pane.selectedProduct.isLevel3, let sweep = pane.level3Sweep {
+                return "l3|\(pane.id)|\(pane.selectedProduct.rawValue)|\(sweep.productCode.rawValue)|\(sweep.scanTime.timeIntervalSince1970)"
+            }
+            if let sweep = pane.currentSweep {
+                return "l2|\(pane.id)|\(pane.selectedProduct.rawValue)|\(sweep.site.id)|\(sweep.momentType)|\(sweep.elevationAngle)|\(sweep.scanTime.timeIntervalSince1970)|\(appState.colorPalette.rawValue)"
+            }
+            return "none|\(pane.id)|\(pane.selectedProduct.rawValue)"
+        }
+
+        @MainActor
+        private func annotationsSignature(appState: AppState, pane: RadarPaneState) -> String {
+            let reportIDs = appState.stormReports.map(\.id).joined(separator: ",")
+            let obsIDs = appState.surfaceObs.map(\.id).joined(separator: ",")
+            let cellIDs = appState.stormCells.map(\.id).joined(separator: ",")
+            let placefilePointIDs = appState.placefiles.flatMap { placefile in
+                placefile.items.compactMap { item -> String? in
+                    if case .point = item.geometry { return item.id.uuidString }
+                    return nil
+                }
+            }.joined(separator: ",")
+            let probe = pane.probeResult.map { "\($0.coordinate.latitude),\($0.coordinate.longitude),\($0.description)" } ?? "none"
+            return [
+                "\(appState.showStormCells):\(cellIDs)",
+                "\(appState.showStormReports):\(reportIDs)",
+                "\(appState.showSurfaceObs):\(obsIDs)",
+                "placefilePoints:\(placefilePointIDs)",
+                "probe:\(probe)",
+            ].joined(separator: "|")
         }
 
         func mapView(_ mapView: MKMapView, rendererFor overlay: MKOverlay) -> MKOverlayRenderer {
